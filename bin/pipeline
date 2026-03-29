@@ -1,0 +1,274 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../config/helpers.php';
+
+// ---------------------------------------------------------------------------
+// Parse CLI args
+// ---------------------------------------------------------------------------
+
+$outputDir  = null;
+$useGitHub  = false;
+$maxCommits = 500;
+$skipDeploy = false;
+$skipStages = [];
+
+foreach ($argv as $i => $arg) {
+    if ($i === 0) {
+        continue;
+    }
+    if (str_starts_with($arg, '--output-dir=')) {
+        $outputDir = substr($arg, strlen('--output-dir='));
+    } elseif ($arg === '--github') {
+        $useGitHub = true;
+    } elseif (str_starts_with($arg, '--max-commits=')) {
+        $maxCommits = (int) substr($arg, strlen('--max-commits='));
+    } elseif ($arg === '--skip-deploy') {
+        $skipDeploy = true;
+    } elseif (str_starts_with($arg, '--skip=')) {
+        $skipStages = array_filter(explode(',', substr($arg, strlen('--skip='))));
+    } elseif ($arg === '--help' || $arg === '-h') {
+        echo <<<HELP
+        End-to-End Pipeline
+
+        Runs all stages in sequence:
+          1. ingest   — Collect history from git/GitHub → history.json
+          2. generate — Transform history into site-spec.json
+          3. render   — Render site-spec into HTML/CSS
+          4. deploy   — Deploy rendered site to hosting
+
+        Usage:
+          php bin/pipeline [options]
+
+        Options:
+          --output-dir=<path>   Output directory                    [default: output]
+          --github              Use GitHub API ingestor (requires GITHUB_TOKEN)
+          --max-commits=<n>     Max commits per repo                [default: 500]
+          --skip-deploy         Stop after render (skip deployment)
+          --skip=<stages>       Comma-separated stages to skip (ingest,generate,render,deploy)
+          --help, -h            Show this help
+
+        Environment:
+          GITHUB_TOKEN          GitHub personal access token (for --github and deploy)
+
+        HELP;
+        exit(0);
+    }
+}
+
+$outputDir ??= __DIR__ . '/../output';
+
+// Ensure output directory exists
+if (! is_dir($outputDir)) {
+    mkdir($outputDir, 0755, true);
+}
+
+$outputDir = realpath($outputDir) ?: $outputDir;
+
+$historyPath  = $outputDir . '/history.json';
+$siteSpecPath = $outputDir . '/site-spec.json';
+$siteDir      = $outputDir . '/site';
+$deployPath   = $outputDir . '/deploy.json';
+
+if ($skipDeploy) {
+    $skipStages[] = 'deploy';
+}
+
+$skipStages = array_unique($skipStages);
+
+// ---------------------------------------------------------------------------
+// Stage definitions
+// ---------------------------------------------------------------------------
+
+$stages = [
+    'ingest' => [
+        'label' => '1/4 Ingest',
+        'run'   => function () use ($useGitHub, $maxCommits, $historyPath): void {
+            runStageScript('ingest', array_filter([
+                '--output=' . $historyPath,
+                $useGitHub ? '--github' : null,
+                '--max-commits=' . $maxCommits,
+            ]));
+        },
+    ],
+    'generate' => [
+        'label' => '2/4 Generate',
+        'run'   => function () use ($historyPath, $siteSpecPath): void {
+            if (! file_exists($historyPath)) {
+                throw new RuntimeException("Cannot generate: {$historyPath} not found. Was ingest skipped?");
+            }
+            runStageScript('generate', [
+                '--input=' . $historyPath,
+                '--output=' . $siteSpecPath,
+            ]);
+        },
+    ],
+    'render' => [
+        'label' => '3/4 Render',
+        'run'   => function () use ($siteSpecPath, $siteDir): void {
+            if (! file_exists($siteSpecPath)) {
+                throw new RuntimeException("Cannot render: {$siteSpecPath} not found. Was generate skipped?");
+            }
+            runStageScript('render', [
+                '--input=' . $siteSpecPath,
+                '--output=' . $siteDir . '/index.html',
+            ]);
+        },
+    ],
+    'deploy' => [
+        'label' => '4/4 Deploy',
+        'run'   => function () use ($siteDir, $deployPath): void {
+            if (! is_dir($siteDir)) {
+                throw new RuntimeException("Cannot deploy: {$siteDir} directory not found. Was render skipped?");
+            }
+            runStageScript('deploy', [
+                '--site=' . $siteDir,
+                '--output=' . $deployPath,
+            ]);
+        },
+    ],
+];
+
+// ---------------------------------------------------------------------------
+// Run pipeline
+// ---------------------------------------------------------------------------
+
+echo "========================================\n";
+echo "  End-to-End Pipeline\n";
+echo "========================================\n";
+echo "Output dir : {$outputDir}\n";
+echo "Mode       : " . ($useGitHub ? 'git + GitHub API' : 'git (local only)') . "\n";
+echo "Stages     : " . implode(' → ', array_diff(array_keys($stages), $skipStages)) . "\n";
+echo "\n";
+
+$startTime = microtime(true);
+$stagesRun = 0;
+
+foreach ($stages as $name => $stage) {
+    if (in_array($name, $skipStages, true)) {
+        echo "[SKIP] {$stage['label']}\n\n";
+        continue;
+    }
+
+    echo "----------------------------------------\n";
+    echo "[START] {$stage['label']}\n";
+    echo "----------------------------------------\n";
+
+    $stageStart = microtime(true);
+
+    try {
+        ($stage['run'])();
+    } catch (Throwable $e) {
+        $elapsed = round(microtime(true) - $stageStart, 2);
+        fwrite(STDERR, "\n[FAILED] {$stage['label']} after {$elapsed}s\n");
+        fwrite(STDERR, "Error: {$e->getMessage()}\n");
+
+        if ($e->getPrevious()) {
+            fwrite(STDERR, "Caused by: {$e->getPrevious()->getMessage()}\n");
+        }
+
+        exit(1);
+    }
+
+    $elapsed = round(microtime(true) - $stageStart, 2);
+    echo "[DONE] {$stage['label']} ({$elapsed}s)\n\n";
+    $stagesRun++;
+}
+
+// ---------------------------------------------------------------------------
+// Final summary
+// ---------------------------------------------------------------------------
+
+$totalElapsed = round(microtime(true) - $startTime, 2);
+
+echo "========================================\n";
+echo "  Pipeline Complete\n";
+echo "========================================\n";
+echo "Stages run : {$stagesRun}\n";
+echo "Total time : {$totalElapsed}s\n";
+echo "Outputs:\n";
+
+if (! in_array('ingest', $skipStages, true) && file_exists($historyPath)) {
+    echo "  history    : {$historyPath}\n";
+}
+if (! in_array('generate', $skipStages, true) && file_exists($siteSpecPath)) {
+    echo "  site-spec  : {$siteSpecPath}\n";
+}
+if (! in_array('render', $skipStages, true) && file_exists($siteDir . '/index.html')) {
+    echo "  site       : {$siteDir}/index.html\n";
+}
+if (! in_array('deploy', $skipStages, true) && file_exists($deployPath)) {
+    echo "  deploy     : {$deployPath}\n";
+}
+
+echo "\n";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a stage's bin script as a subprocess and stream its output.
+ *
+ * @param  string  $script  Script name (e.g. "ingest")
+ * @param  string[]  $args  CLI arguments to pass
+ * @throws RuntimeException  If the script exits with a non-zero code
+ */
+function runStageScript(string $script, array $args): void
+{
+    $binPath = __DIR__ . '/' . $script;
+
+    if (! file_exists($binPath)) {
+        throw new RuntimeException("Stage script not found: {$binPath}");
+    }
+
+    $php = PHP_BINARY;
+    $command = escapeshellarg($php) . ' ' . escapeshellarg($binPath);
+
+    foreach ($args as $arg) {
+        $command .= ' ' . escapeshellarg($arg);
+    }
+
+    $descriptors = [
+        0 => ['pipe', 'r'],   // stdin
+        1 => ['pipe', 'w'],   // stdout
+        2 => ['pipe', 'w'],   // stderr
+    ];
+
+    $process = proc_open($command, $descriptors, $pipes);
+
+    if (! is_resource($process)) {
+        throw new RuntimeException("Failed to start stage: {$script}");
+    }
+
+    fclose($pipes[0]);
+
+    // Stream stdout and stderr
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    $exitCode = proc_close($process);
+
+    if ($stdout !== '' && $stdout !== false) {
+        echo $stdout;
+    }
+
+    if ($exitCode !== 0) {
+        $errorMsg = "Stage '{$script}' exited with code {$exitCode}";
+        if ($stderr !== '' && $stderr !== false) {
+            $errorMsg .= ": " . trim($stderr);
+        }
+        throw new RuntimeException($errorMsg);
+    }
+
+    // Show any stderr warnings even on success
+    if ($stderr !== '' && $stderr !== false) {
+        fwrite(STDERR, $stderr);
+    }
+}
