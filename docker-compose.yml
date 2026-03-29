@@ -1,0 +1,8 @@
+services:
+  pipeline:
+    build: .
+    volumes:
+      - ./output:/app/output
+      - ./config:/app/config
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}

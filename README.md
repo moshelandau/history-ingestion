@@ -76,6 +76,26 @@ Preview and edit the generated site spec:
 php bin/dashboard
 ```
 
+## Docker
+
+Run the pipeline without installing PHP or Composer locally:
+
+```bash
+# Build the image
+docker compose build
+
+# Run the full pipeline with GitHub API
+docker compose run --rm pipeline bin/pipeline --github
+
+# Run with local git only
+docker compose run --rm pipeline bin/pipeline
+
+# Skip deployment
+docker compose run --rm pipeline bin/pipeline --skip-deploy
+```
+
+Set `GITHUB_TOKEN` in a `.env` file or export it before running.
+
 ## Testing
 
 ```bash
