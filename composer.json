@@ -22,6 +22,8 @@
     },
     "scripts": {
         "ingest": "php bin/ingest",
+        "generate": "php bin/generate",
+        "render": "php bin/render",
         "test": "vendor/bin/phpunit --testdox",
         "lint": "vendor/bin/pint"
     },

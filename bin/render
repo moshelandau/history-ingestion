@@ -1,0 +1,72 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use HistoryIngestion\Renderer\SiteRenderer;
+
+// ---------------------------------------------------------------------------
+// Parse CLI args
+// ---------------------------------------------------------------------------
+
+$inputPath  = null;
+$outputPath = null;
+
+foreach ($argv as $i => $arg) {
+    if ($i === 0) {
+        continue;
+    }
+    if (str_starts_with($arg, '--input=')) {
+        $inputPath = substr($arg, strlen('--input='));
+    } elseif (str_starts_with($arg, '--output=')) {
+        $outputPath = substr($arg, strlen('--output='));
+    } elseif ($arg === '--help' || $arg === '-h') {
+        echo <<<HELP
+        Frontend Renderer
+
+        Usage:
+          php bin/render [options]
+
+        Options:
+          --input=<path>    Path to site-spec.json produced by bin/generate  [default: output/site-spec.json]
+          --output=<path>   Where to write the generated index.html          [default: output/site/index.html]
+          --help, -h        Show this help
+
+        HELP;
+        exit(0);
+    }
+}
+
+$inputPath  ??= __DIR__ . '/../output/site-spec.json';
+$outputPath ??= __DIR__ . '/../output/site/index.html';
+
+// ---------------------------------------------------------------------------
+// Run rendering
+// ---------------------------------------------------------------------------
+
+echo "Frontend Renderer\n";
+echo "=================\n";
+echo "Input:  {$inputPath}\n";
+echo "Output: {$outputPath}\n";
+echo "\n";
+
+$renderer = SiteRenderer::create();
+
+try {
+    $result = $renderer->render($inputPath, $outputPath);
+} catch (\Throwable $e) {
+    fwrite(STDERR, "Fatal: {$e->getMessage()}\n");
+    exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+
+echo "Done.\n";
+echo "  Developer : {$result['developer']}\n";
+echo "  Style     : {$result['style']}\n";
+echo "  Sections  : {$result['sections']}\n";
+echo "  Output    : {$result['output']}\n";
