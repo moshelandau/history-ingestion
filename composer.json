@@ -24,6 +24,7 @@
         "ingest": "php bin/ingest",
         "generate": "php bin/generate",
         "render": "php bin/render",
+        "deploy": "php bin/deploy",
         "dashboard": "php bin/dashboard",
         "test": "vendor/bin/phpunit --testdox",
         "lint": "vendor/bin/pint"

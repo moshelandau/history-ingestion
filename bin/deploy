@@ -1,0 +1,97 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../config/helpers.php';
+
+use HistoryIngestion\Deployer;
+use HistoryIngestion\Deployment\GitHubPagesDriver;
+
+// ---------------------------------------------------------------------------
+// Parse CLI args
+// ---------------------------------------------------------------------------
+
+$siteDir    = null;
+$outputPath = null;
+
+foreach ($argv as $i => $arg) {
+    if ($i === 0) {
+        continue;
+    }
+    if (str_starts_with($arg, '--site=')) {
+        $siteDir = substr($arg, strlen('--site='));
+    } elseif (str_starts_with($arg, '--output=')) {
+        $outputPath = substr($arg, strlen('--output='));
+    } elseif ($arg === '--help' || $arg === '-h') {
+        echo <<<HELP
+        Auto-Deployment Pipeline
+
+        Usage:
+          php bin/deploy --site=<path> [options]
+
+        Options:
+          --site=<path>         Path to the generated site directory (required)
+          --output=<path>       Where to write deploy.json  [default: output/deploy.json]
+          --help, -h            Show this help
+
+        Environment:
+          GITHUB_TOKEN          GitHub personal access token (repo + pages scopes)
+
+        Config:
+          Copy config/deploy.php.example → config/deploy.php and fill in your values.
+
+        HELP;
+        exit(0);
+    }
+}
+
+if ($siteDir === null) {
+    fwrite(STDERR, "Error: --site=<path> is required.\n");
+    fwrite(STDERR, "Run with --help for usage.\n");
+    exit(1);
+}
+
+$outputPath ??= __DIR__ . '/../output/deploy.json';
+$configPath   = __DIR__ . '/../config/deploy.php';
+
+if (! file_exists($configPath)) {
+    fwrite(STDERR, "Error: config/deploy.php not found.\n");
+    fwrite(STDERR, "Copy config/deploy.php.example to config/deploy.php and fill in your values.\n");
+    exit(1);
+}
+
+$config = require $configPath;
+
+// ---------------------------------------------------------------------------
+// Run deployment
+// ---------------------------------------------------------------------------
+
+echo "Auto-Deployment Pipeline\n";
+echo "========================\n";
+echo "Site dir : {$siteDir}\n";
+echo "Driver   : " . ($config['driver'] ?? '(none)') . "\n";
+echo "Output   : {$outputPath}\n";
+echo "\n";
+
+$deployer = new Deployer([new GitHubPagesDriver()]);
+
+try {
+    $result = $deployer->run($siteDir, $config, $outputPath);
+} catch (\Throwable $e) {
+    fwrite(STDERR, "Fatal: {$e->getMessage()}\n");
+    exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+
+echo "\n";
+echo "Deployed.\n";
+echo "  Live URL    : {$result->liveUrl}\n";
+echo "  Repository  : {$result->repositoryUrl}\n";
+echo "  Commit SHA  : {$result->commitSha}\n";
+echo "  Deployed at : " . $result->deployedAt->format('Y-m-d H:i:s') . " UTC\n";
+echo "  Manifest    : {$outputPath}\n";
