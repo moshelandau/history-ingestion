@@ -1,0 +1,68 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Launch the customer-facing dashboard using PHP's built-in web server.
+ *
+ * Usage:
+ *   php bin/dashboard [options]
+ *
+ * Options:
+ *   --host=<host>   Host to bind to  [default: localhost]
+ *   --port=<port>   Port to listen on [default: 8080]
+ *   --help, -h      Show this help
+ */
+
+$host = 'localhost';
+$port = 8080;
+
+foreach ($argv as $i => $arg) {
+    if ($i === 0) {
+        continue;
+    }
+    if (str_starts_with($arg, '--host=')) {
+        $host = substr($arg, strlen('--host='));
+    } elseif (str_starts_with($arg, '--port=')) {
+        $port = (int) substr($arg, strlen('--port='));
+    } elseif ($arg === '--help' || $arg === '-h') {
+        echo <<<HELP
+        Customer Dashboard
+
+        Usage:
+          php bin/dashboard [options]
+
+        Options:
+          --host=<host>   Host to bind to   [default: localhost]
+          --port=<port>   Port to listen on  [default: 8080]
+          --help, -h      Show this help
+
+        The dashboard lets you:
+          - Preview your auto-generated portfolio site
+          - Edit hero text, developer info, and contact links
+          - Regenerate the site with one click
+
+        HELP;
+        exit(0);
+    }
+}
+
+$docRoot = __DIR__ . '/../public';
+$router = $docRoot . '/index.php';
+
+if (!is_file($router)) {
+    fwrite(STDERR, "Error: public/index.php not found.\n");
+    exit(1);
+}
+
+echo "Customer Dashboard\n";
+echo "==================\n";
+echo "Server: http://{$host}:{$port}\n";
+echo "Press Ctrl+C to stop.\n\n";
+
+$php = PHP_BINARY;
+$cmd = "\"{$php}\" -S {$host}:{$port} -t \"{$docRoot}\" \"{$router}\"";
+
+passthru($cmd, $exitCode);
+exit($exitCode);

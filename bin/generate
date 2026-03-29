@@ -1,0 +1,188 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../config/helpers.php';
+
+use HistoryIngestion\Generator\WebsiteGenerator;
+use HistoryIngestion\Schema\CommitRecord;
+use HistoryIngestion\Schema\DeveloperProfile;
+use HistoryIngestion\Schema\NormalizedDataset;
+use HistoryIngestion\Schema\ProjectSnapshot;
+
+// ---------------------------------------------------------------------------
+// Parse CLI args
+// ---------------------------------------------------------------------------
+
+$inputPath  = null;
+$outputPath = null;
+
+foreach ($argv as $i => $arg) {
+    if ($i === 0) {
+        continue;
+    }
+    if (str_starts_with($arg, '--input=')) {
+        $inputPath = substr($arg, strlen('--input='));
+    } elseif (str_starts_with($arg, '--output=')) {
+        $outputPath = substr($arg, strlen('--output='));
+    } elseif ($arg === '--help' || $arg === '-h') {
+        echo <<<HELP
+        Website Generation Engine
+
+        Usage:
+          php bin/generate [options]
+
+        Options:
+          --input=<path>    Path to history.json produced by bin/ingest  [default: output/history.json]
+          --output=<path>   Where to write site-spec.json                [default: output/site-spec.json]
+          --help, -h        Show this help
+
+        HELP;
+        exit(0);
+    }
+}
+
+$inputPath  ??= __DIR__ . '/../output/history.json';
+$outputPath ??= __DIR__ . '/../output/site-spec.json';
+
+// ---------------------------------------------------------------------------
+// Load NormalizedDataset from history.json
+// ---------------------------------------------------------------------------
+
+if (! file_exists($inputPath)) {
+    fwrite(STDERR, "Error: input file not found at {$inputPath}\n");
+    fwrite(STDERR, "Run 'php bin/ingest' first to generate the history dataset.\n");
+    exit(1);
+}
+
+$raw = file_get_contents($inputPath);
+
+if ($raw === false) {
+    fwrite(STDERR, "Error: could not read {$inputPath}\n");
+    exit(1);
+}
+
+$data = json_decode($raw, associative: true);
+
+if (! is_array($data)) {
+    fwrite(STDERR, "Error: invalid JSON in {$inputPath}\n");
+    exit(1);
+}
+
+$dataset = deserializeDataset($data);
+
+// ---------------------------------------------------------------------------
+// Run generation
+// ---------------------------------------------------------------------------
+
+echo "Website Generation Engine\n";
+echo "=========================\n";
+echo "Input:  {$inputPath}\n";
+echo "Output: {$outputPath}\n";
+echo "\n";
+
+$generator = WebsiteGenerator::create();
+
+try {
+    $spec = $generator->generate($dataset);
+} catch (\Throwable $e) {
+    fwrite(STDERR, "Fatal: {$e->getMessage()}\n");
+    exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Write output
+// ---------------------------------------------------------------------------
+
+$dir = dirname($outputPath);
+if (! is_dir($dir)) {
+    mkdir($dir, recursive: true);
+}
+
+$json = json_encode($spec->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+if ($json === false) {
+    fwrite(STDERR, "Error: failed to JSON-encode site spec: " . json_last_error_msg() . "\n");
+    exit(1);
+}
+
+file_put_contents($outputPath, $json);
+
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+
+echo "Done.\n";
+echo "  Developer      : {$spec->developer->name} (@{$spec->developer->github})\n";
+echo "  Theme style    : {$spec->theme->style} (source: {$spec->theme->themeSource})\n";
+echo "  Layout         : {$spec->structure->layoutType} / {$spec->structure->navigationStyle}\n";
+echo "  Projects       : " . count($spec->content->projectCards) . "\n";
+echo "  Skills         : " . count($spec->content->skills) . "\n";
+echo "  Timeline items : " . count($spec->content->timeline) . "\n";
+echo "  Output written : {$outputPath}\n";
+
+// ---------------------------------------------------------------------------
+// Helpers — reconstruct domain objects from raw JSON
+// ---------------------------------------------------------------------------
+
+function deserializeDataset(array $data): NormalizedDataset
+{
+    $dev = new DeveloperProfile(
+        name:   $data['developer']['name'],
+        github: $data['developer']['github'],
+        email:  $data['developer']['email'] ?? null,
+    );
+
+    $projects = array_map('deserializeSnapshot', $data['projects'] ?? []);
+
+    return new NormalizedDataset(
+        schemaVersion:      $data['schema_version'] ?? '1.0.0',
+        generatedAt:        new \DateTimeImmutable($data['generated_at']),
+        developer:          $dev,
+        projects:           $projects,
+        totalCommits:       $data['activity']['total_commits'] ?? 0,
+        activeRepositories: $data['activity']['active_repositories'] ?? 0,
+        languages:          $data['skills']['languages'] ?? [],
+        frameworks:         $data['skills']['frameworks'] ?? [],
+        tools:              $data['skills']['tools'] ?? [],
+        activityFrom:       isset($data['activity']['from']) ? new \DateTimeImmutable($data['activity']['from']) : null,
+        activityTo:         isset($data['activity']['to']) ? new \DateTimeImmutable($data['activity']['to']) : null,
+    );
+}
+
+function deserializeSnapshot(array $data): ProjectSnapshot
+{
+    $commits = array_map('deserializeCommit', $data['commits'] ?? []);
+
+    return new ProjectSnapshot(
+        name:         $data['name'],
+        repo:         $data['repo'] ?? '',
+        description:  $data['description'] ?? '',
+        url:          $data['url'] ?? '',
+        stack:        $data['stack'] ?? [],
+        commits:      $commits,
+        totalCommits: $data['total_commits'] ?? 0,
+        contributors: $data['contributors'] ?? [],
+        languageStats: $data['language_stats'] ?? [],
+        firstCommitAt: isset($data['first_commit_at']) ? new \DateTimeImmutable($data['first_commit_at']) : null,
+        lastCommitAt:  isset($data['last_commit_at']) ? new \DateTimeImmutable($data['last_commit_at']) : null,
+        gitAvailable:  $data['git_available'] ?? false,
+    );
+}
+
+function deserializeCommit(array $data): CommitRecord
+{
+    return new CommitRecord(
+        hash:         $data['hash'],
+        shortHash:    $data['short_hash'],
+        message:      $data['message'],
+        author:       $data['author'],
+        authorEmail:  $data['author_email'],
+        date:         new \DateTimeImmutable($data['date']),
+        filesChanged: $data['files_changed'] ?? 0,
+        insertions:   $data['insertions'] ?? 0,
+        deletions:    $data['deletions'] ?? 0,
+    );
+}

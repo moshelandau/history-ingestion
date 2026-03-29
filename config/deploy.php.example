@@ -1,0 +1,44 @@
+<?php
+
+/**
+ * Deployment configuration template.
+ *
+ * Copy this file to config/deploy.php and fill in your values.
+ * NEVER commit config/deploy.php — it contains secrets.
+ */
+return [
+    /*
+     * Which deployment driver to use.
+     * Supported: "github_pages"
+     */
+    'driver' => 'github_pages',
+
+    /*
+     * GitHub personal access token.
+     * Needs scopes: repo, pages
+     * Can also be set via GITHUB_TOKEN env var.
+     */
+    'github_token' => env('GITHUB_TOKEN', ''),
+
+    /*
+     * GitHub username or org that will own the Pages repo.
+     */
+    'owner' => 'your-github-username',
+
+    /*
+     * Repository name to deploy into.
+     * Will be created if it does not exist.
+     * The live URL will be: https://{owner}.github.io/{repo}/
+     */
+    'repo' => 'my-portfolio',
+
+    /*
+     * Branch to push site files to (default: "main").
+     */
+    'branch' => 'main',
+
+    /*
+     * Commit message used when pushing site files.
+     */
+    'commit_message' => 'chore: deploy generated site',
+];

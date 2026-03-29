@@ -1,0 +1,104 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../config/helpers.php';
+
+use HistoryIngestion\Ingestors\GitHubApiIngestor;
+use HistoryIngestion\Ingestors\GitIngestor;
+use HistoryIngestion\Pipeline;
+
+// ---------------------------------------------------------------------------
+// Parse CLI args
+// ---------------------------------------------------------------------------
+
+$outputPath = null;
+$useGitHub = false;
+$maxCommits = 500;
+
+foreach ($argv as $i => $arg) {
+    if ($i === 0) {
+        continue; // script name
+    }
+    if (str_starts_with($arg, '--output=')) {
+        $outputPath = substr($arg, strlen('--output='));
+    } elseif ($arg === '--github') {
+        $useGitHub = true;
+    } elseif (str_starts_with($arg, '--max-commits=')) {
+        $maxCommits = (int) substr($arg, strlen('--max-commits='));
+    } elseif ($arg === '--help' || $arg === '-h') {
+        echo <<<HELP
+        History Ingestion Pipeline
+
+        Usage:
+          php bin/ingest [options]
+
+        Options:
+          --output=<path>       Where to write history.json  [default: output/history.json]
+          --github              Use GitHub API ingestor (requires GITHUB_TOKEN env var)
+          --max-commits=<n>     Max commits per repo         [default: 500]
+          --help, -h            Show this help
+
+        Environment:
+          GITHUB_TOKEN          GitHub personal access token (for --github mode)
+
+        HELP;
+        exit(0);
+    }
+}
+
+$outputPath ??= __DIR__ . '/../output/history.json';
+$configPath = __DIR__ . '/../config/projects.php';
+
+if (! file_exists($configPath)) {
+    fwrite(STDERR, "Error: config not found at {$configPath}\n");
+    exit(1);
+}
+
+$config = require $configPath;
+
+// ---------------------------------------------------------------------------
+// Build ingestor chain
+// ---------------------------------------------------------------------------
+
+// GitIngestor has priority — uses local clone when available (faster, no rate limits)
+$ingestors = [new GitIngestor(maxCommits: $maxCommits)];
+
+if ($useGitHub) {
+    // GitHubApiIngestor is appended as fallback for repos without a local clone
+    $ingestors[] = new GitHubApiIngestor(maxCommits: $maxCommits);
+}
+
+// ---------------------------------------------------------------------------
+// Run pipeline
+// ---------------------------------------------------------------------------
+
+echo "History Ingestion Pipeline\n";
+echo "==========================\n";
+echo "Output: {$outputPath}\n";
+echo "Mode:   " . ($useGitHub ? 'git + GitHub API' : 'git (local only)') . "\n";
+echo "\n";
+
+$pipeline = new Pipeline($ingestors);
+
+try {
+    $dataset = $pipeline->run($config, $outputPath);
+} catch (\Throwable $e) {
+    fwrite(STDERR, "Fatal: {$e->getMessage()}\n");
+    exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+
+echo "\n";
+echo "Done.\n";
+echo "  Projects ingested : " . count($dataset->projects) . "\n";
+echo "  Active repos      : {$dataset->activeRepositories}\n";
+echo "  Total commits     : {$dataset->totalCommits}\n";
+echo "  Top languages     : " . implode(', ', array_keys(array_slice($dataset->languages, 0, 5))) . "\n";
+echo "  Frameworks        : " . implode(', ', array_slice($dataset->frameworks, 0, 5)) . "\n";
+echo "  Output written    : {$outputPath}\n";

@@ -1,0 +1,4 @@
+/vendor/
+/output/history.json
+/.phpunit.cache/
+.env
