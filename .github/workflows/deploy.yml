@@ -49,11 +49,11 @@ jobs:
           coverage: none
 
       - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-dev
+        run: composer install --no-interaction --prefer-dist
 
-      - name: Deploy
+      - name: Run pipeline (ingest → generate → render → deploy)
         run: |
-          chmod +x bin/deploy
-          bin/deploy
+          chmod +x bin/pipeline
+          php bin/pipeline --github
         env:
-          DEPLOY_ENV: production
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
