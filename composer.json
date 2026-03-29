@@ -1,6 +1,6 @@
 {
     "name": "paperclip/history-ingestion",
-    "description": "History ingestion pipeline — parse and normalize developer history for the auto-website-generation engine.",
+    "description": "History ingestion pipeline \u2014 parse and normalize developer history for the auto-website-generation engine.",
     "type": "project",
     "require": {
         "php": "^8.4",
@@ -25,6 +25,7 @@
         "generate": "php bin/generate",
         "render": "php bin/render",
         "deploy": "php bin/deploy",
+        "pipeline": "php bin/pipeline",
         "dashboard": "php bin/dashboard",
         "test": "vendor/bin/phpunit --testdox",
         "lint": "vendor/bin/pint"
