@@ -1,0 +1,33 @@
+{
+    "name": "paperclip/history-ingestion",
+    "description": "History ingestion pipeline — parse and normalize developer history for the auto-website-generation engine.",
+    "type": "project",
+    "require": {
+        "php": "^8.4",
+        "guzzlehttp/guzzle": "^7.9"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "laravel/pint": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "HistoryIngestion\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "HistoryIngestion\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "ingest": "php bin/ingest",
+        "test": "vendor/bin/phpunit --testdox",
+        "lint": "vendor/bin/pint"
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "minimum-stability": "stable"
+}
